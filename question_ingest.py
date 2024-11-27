@@ -24,13 +24,12 @@ class Quest:
         Quest._counter += 1
 
 class Question:
-    ### each instance must have a unique data_path but many possible prompts
     counter = 0
 
     def __init__(self, prompt, data_path,coverage=1.0):
         self._id = Question.counter 
         Question.counter += 1
-        new_qset = self.questionize(data_path) # all immutable after initialized
+        new_qset = self.questionize(data_path) 
         self._qset = new_qset
         self._coverage = coverage
         self._prompt = prompt
@@ -48,8 +47,9 @@ class Question:
         return self._prompt
 
     def stats_compute(self):
-        if sum([question.model_answer != None for question in self._qset]) == len(self._qset):
-            # print out stats: briefly descriptive + performance
+        holder = sum([question.model_answer != None for question in self._qset])
+        if holder == len(self._qset):
+            
             # update stats, store in db
             stats_result = {}
             stats_result["id"] = self._id
@@ -67,7 +67,7 @@ class Question:
             return
 
     def questionize(self,data_path):
-        # add MMLU API to store questions automatically
+   
         def read_question(data_path):
                 
             def encoding_check(filename):
@@ -102,10 +102,3 @@ class Question:
                 questionized.append(quest)
                 
         return questionized
-
-
-# if __name__ == "__main__":
-#     out = questionize("test_samples3.csv")
-
-
-

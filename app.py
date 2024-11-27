@@ -3,7 +3,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_upstage import ChatUpstage 
 from langdetect import detect
 import wikipediaapi
-from eng_retrieval import return_query
+# from eng_retrieval import return_query
 import re
 import numpy as np
 from question_ingest import Question, Quest
@@ -12,17 +12,19 @@ import os
 ELASTIC_CLOUD_ID = os.getenv("ELASTIC_CLOUD_ID")
 ELASTIC_API_KEY = os.getenv("ELASTIC_API_KEY")
 UPSTAGE_API_KEY = os.getenv("UPSTAGE_API_KEY")
+# WIKI_NAME = os.getenv("WIKI_NAME")
 
 class MiniRAG:
     ELASTIC_CLOUD_ID = ELASTIC_CLOUD_ID
 
-    def __init__(self, ELASTIC_API_KEY, UPSTAGE_API_KEY, wikiproj_name="NLPproj (h@gmail.com)"):
+    def __init__(self, ELASTIC_API_KEY, UPSTAGE_API_KEY, wikiproj_name=None):
         def server_connector(ELASTIC_API_KEY):
             try:
                 client = Elasticsearch(
                         api_key=ELASTIC_API_KEY,
                         cloud_id=ELASTIC_CLOUD_ID,
                     )
+                # print(client.info())
                 if client.info().get("name", None) == None:
                     print(client.info()) 
             except ValueError as ve:
@@ -32,11 +34,11 @@ class MiniRAG:
             return client
         
         self._client = server_connector(ELASTIC_API_KEY)
-        self._llm = ChatUpstage(api_key=UPSTAGE_API_KEY,model="solar-1-mini-chat")
+        self._llm = ChatUpstage(api_key=UPSTAGE_API_KEY) #model="solar-1-mini-chat"
         self._promptstr = None
         self._prompter = PromptTemplate.from_template(self.promptstr) if self._promptstr != None else None
         self._chain = self._prompter | self._llm if self._prompter != None else None
-        self._wiki_client = wikipediaapi.Wikipedia(wikiproj_name, language="en")
+        # self._wiki_client = wikipediaapi.Wikipedia(wikiproj_name, language="en")
         self._question_set = None
         
     @property
@@ -80,76 +82,50 @@ class MiniRAG:
 
     def retrieval(self, qset: Question):
 
-        # qset.coverage = context_coverage
-        def answer_checking(question, tried=False):
-            print(question.question)
-            ans = (question.answer == question.model_answer)
-            if ans:
-                print("Correct!")#question.answer)
-            else:
-                if question.lang == "ko" or not tried:
-                    print(f"Incorrect! Answer:{question.answer}, Model answers: {question.model_answer}")
-                elif question.lang == "en":
-                    print(f"Incorrect! Answer:{question.answer}, Model answers: {question.model_answer}")
-                    return ans
-        
-        def eng_query(question: Quest):
-            context = return_query(question.question)
-            return context
-
-        def kor_query(question: Quest ,index="ewhapdf_chunked_index"):
+        def context_query(question: Quest ,index="ewhapdf_chunked_index"):
                     
             def parse_query_results(query_results):
 
-                _concat = " ".join([res["_source"]["text"] for res in query_results["hits"]["hits"][:4]])
+                _concat = " ".join([res["_source"]["text"] for res in query_results["hits"]["hits"]])
             
                 return _concat
-    
-            question_str = question.question.split("\n")[0] # remove the multiple choice options
-            query_results = self._client.search(index=index,query={"match":
-                                                        {"text": {"query":question_str}}})
-            number_results = query_results["hits"]["total"]["value"]
-            question.no_documents = number_results #query_results["hits"]["total"]["value"]
 
-            if number_results != 0:
-                context = parse_query_results(query_results,coverage=number_results)
-            else: 
-                context = question.question
-            
-            return context
+            if question.lang == "en":
+                all_results = question.question
+            elif question.lang == "ko":
+                # question_str = question.question
+                question_str = question.question.split("\n")[0] # remove the multiple choice options
+                query_results = self._client.search(index=index,query={"match":
+                                                            {"text": {"query":question_str}}})
+                number_results = query_results["hits"]["total"]["value"]
+                question.no_documents = number_results #query_results["hits"]["total"]["value"]
+
+                if number_results != 0:
+                    all_results = parse_query_results(query_results)
+                  
+                else: 
+                    all_results = question.question
+                
+            else:
+                print("Language not allowed!")  
+            return all_results
         
         for question in qset.qset_: 
-            if question.lang == "ko":
-                context = kor_query(question)
+            context = context_query(question)
            
-                res = self._chain.invoke({"question": question.question, "context":context})
+            res = self._chain.invoke({"question": question.question, "context":context})
           
-                matches = list(re.finditer(r'\([a-zA-Z]\)', res.content))
+            matches = list(re.finditer(r'\([a-zA-Z]\)', res.content))
             
-                model_answer = matches[-1].group() if matches else None
-          
-                question.model_answer = model_answer
-
-                answer_checking(question, question.lang)
-
-            elif question.lang == "en":
-                res = self._chain.invoke({"question": question.question, "context":""})
-                first_answer = answer_checking(question)
-                matches = list(re.finditer(r'\([a-zA-Z]\)', res.content))
+            model_answer = matches[-1].group() if matches else None
+        
+            question.model_answer = model_answer
+            print(question.id, question.question)
+            if question.answer != model_answer:
+                print(f"Answer: {question.answer},  model answer: {model_answer} => incorrect \n")
             
-                model_answer = matches[-1].group() if matches else None
-          
-                question.model_answer = model_answer
-
-                # print("First answer:", first_answer,"\n")
-                if not first_answer:
-                    context = eng_query(question)
-                    res = self._chain.invoke({"question": question, "context":context})
-                    print(res.content)
-                    matches = list(re.finditer(r'\([a-zA-Z]\)', res.content))
-                    model_answer = matches[-1].group() if matches else None
-                    question.model_answer = model_answer
-                    answer_checking(question,tried=True)
+            else: 
+                print(f"Answer: {question.answer},  model answer: {model_answer} \n")
 
         return qset.stats_compute()
     
@@ -157,7 +133,7 @@ class MiniRAG:
 if __name__ == "__main__":
     mini_rag = MiniRAG(ELASTIC_API_KEY, UPSTAGE_API_KEY)
     prompt = """ 
-        Please provide the most correct answer from the following context. Understand the entire full sentence for completeness.
+         Please provide the most correct answer from the following context. Understand the entire full sentence for completeness.
         Q: Who likes to eat chips? Context says that Ha, Lam, Bun like to eat chips. 
         (A): Ha 
         (B): Lam
@@ -177,10 +153,7 @@ if __name__ == "__main__":
         Context: {context}
         """
     mini_rag.prompt = prompt
-    mini_rag.question_set = "test_samples_MMLULAW.csv"
+    mini_rag.question_set = "test_samples_ewha.csv"
     outcome = mini_rag.retrieval(mini_rag.question_set)
     print(outcome)
-
-
-
 
