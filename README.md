@@ -8,7 +8,7 @@ To reproduce the main experiments, open `main.ipynb` and execute all cells. You 
 
 In addition, we also provide a different implementation of the quiztaker to enhance the context retrieval's speed and relevance using the search engine powered by elastic search (free-trial cloud server expired before January so might not work at your clone time). In order to run this, you need to similarly provide the path to the test sample inside `main()`. You can also change the prompt to reflect your test cases and run:
 ```python
-python app.py
+python search_enhanced/app.py
 ```
 
 
